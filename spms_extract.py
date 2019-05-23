@@ -3,8 +3,10 @@
 Runs with Python 3.5 (as part of Anaconda3-4.1.1-Windows-x86_64)
 """
 
-from xml.etree import ElementTree
-#from lxml import etree
+#from xml.etree import ElementTree
+from io import StringIO, BytesIO
+from lxml import etree
+#from lxml import ElementTree
 import urllib.request
 import plistlib
 import sys
@@ -16,12 +18,15 @@ from xml.parsers import expat
 
 # Set basic urls
 #spms_base = 'https://oraweb.cern.ch/pls/ipac2017/'
-spms_base = 'https://spms.kek.jp/pls/ibic18/'
+spms_base = 'https://spms.kek.jp/pls/ipac19/'
 spms_summary = spms_base + 'spms_summary.xml'
 spms_session_data =  spms_base + 'xml2.session_data?sid='
 
 # Date for conference
-start_date = datetime.date(2017, 4, 29)
+start_date = datetime.date(2019, 5, 19)
+
+# The classifications string format is not always correct in the app. Look for paper_class in the code and modify to 
+# represent the correct part of this https://spms.kek.jp/pls/ipac19/maint.tab?tab_name=CLASSIFICATION_CODES&order_by=classification_descr&action=
 
 # empty dictionaries
 authors = {}
@@ -59,6 +64,10 @@ ctx = ssl.create_default_context()
 ctx.check_hostname = False
 ctx.verify_mode = ssl.CERT_NONE
 
+#magical_parser = etree.XMLParser(encoding='utf-8', recover=True, ns_clean=True)
+magical_parser = etree.XMLParser(recover=True, ns_clean=True)
+
+
 req = urllib.request.urlopen(spms_summary, context=ctx)
 filename = './sessions/spms_summary.xml'
 try:
@@ -73,17 +82,17 @@ if age > 600:
     try:
         data = req.read().decode('utf-8')
     except:
-        print("UTF-8 encoding failed, trying generic")
+        print("UTF-8 decoding failed, trying generic")
         data = req.read()
         pass
     f.write(data.encode('utf-8'))
     f.close()
-    conference_element = ElementTree.fromstring(data)
+    conference_element = etree.XML(data, magical_parser)
 else:
     f = open(filename,'rb')
     print(filename)
     data = f.read()
-    conference_element = ElementTree.XML(data)
+    conference_element = etree.XML(data, magical_parser)
     f.close()
 
 #parser = etree.XMLParser(recover=True)        
@@ -99,13 +108,19 @@ for session_element in conference_element:
     
     # download session data
     print ("Working on session", session_abbr, session_type, session_name)
-    if session_abbr == "SUSPF":
+    if session_abbr == "SUSPO":
         print("Damaged xml exiting")
         continue
     req = urllib.request.urlopen(spms_session_data + session_abbr, context=ctx)
-    #data = req.read().decode('utf-8')
-    data = req.read()
-    session_data_element = ElementTree.fromstring(data)
+    data = req.read()#.decode('ascii', 'ignore')
+    #data = req.read().decode('ascii', 'replace')
+    
+    magical_parser = etree.XMLParser(recover=True, ns_clean=True)
+    #magical_parser = etree.XMLParser(recover=True)
+
+    # random test, original före ipac19
+    #session_data_element = ElementTree.fromstring(data, parser)
+    session_data_element = etree.XML(data, magical_parser)
     
     session_time_element = session_data_element.find(".//date")
     session_time_btime = session_time_element.attrib['btime']
@@ -240,8 +255,8 @@ for session_element in conference_element:
             
             # this needs to be change to reflect the MAIN CLASSIFICATIONS
             categories[paper_class] = {
-                "external_id" : paper_class[:2],   
-                "title" : paper_class[3:]
+                "external_id" : paper_class[:3],   
+                "title" : paper_class[5:]
                 
             }
                         
@@ -259,7 +274,7 @@ for session_element in conference_element:
                 "scheme_detail" : delta.days,
                 "room_id" : location,
                 "type" : ptype,
-                "category_array" : [{ "id" : paper_class[:2]}],    
+                "category_array" : [{ "id" : paper_class[:3]}],    
                 #"category_array" : [paper_class[:2]],
                 "e_info" : presentation_type_text,
                 #"external_block_id" : session_abbr,
@@ -322,7 +337,7 @@ for session_element in conference_element:
         #reset caegory var
         #print("Resetting category arrays")
         cat = []
-        print ("More than one paper in session")
+        #print ("More than one paper in session")
         for paper_element in paper_elements:
             time_slot = ""
             # parse authors
@@ -418,7 +433,7 @@ for session_element in conference_element:
                 talk_end = (tmp_datetime + timedelta).time()
                 time_slot = str((paper_start_time.strftime("%H.%M"))) + '-' + str((talk_end.strftime("%H.%M")))
                 #print("Contributed oral - setting category array")
-                cat = [{ "id" : paper_class[:2]}]
+                cat = [{ "id" : paper_class[:3]}]
                 
             elif presentation_type_text == "Invited Oral":
                 ptype = "FF"
@@ -430,15 +445,15 @@ for session_element in conference_element:
                 talk_end = (tmp_datetime + timedelta).time()
                 time_slot = str((paper_start_time.strftime("%H.%M"))) + '-' + str((talk_end.strftime("%H.%M")))
                 #print("Invited oral - setting category array")
-                cat = [{ "id" : paper_class[:2]}]
+                cat = [{ "id" : paper_class[:3]}]
                 
             elif presentation_type_text == "Poster":
                 ptype = "PU"            
 
             # Reflects the MAIN CLASSIFICATIONS, we should have sub as well
             categories[paper_class] = {
-                "external_id" : paper_class[:2],   
-                "title" : paper_class[3:]
+                "external_id" : paper_class[:3],   
+                "title" : paper_class[5:]
                 
             }
             
@@ -463,7 +478,7 @@ for session_element in conference_element:
                 "scheme_detail" : delta.days,
                 "room_id" : location,
                 "type" : ptype,
-                "category_array" : [{ "id" : paper_class[:2]}],
+                "category_array" : [{ "id" : paper_class[:3]}],
                 "e_info" : presentation_type_text,
                 "external_block_id" : session_abbr,
                 "authors_array" : list(map(lambda x: { "id" : x.find(".//author_id").text}, author_elements)),
@@ -585,6 +600,3 @@ with open("scheme.plist", 'wb') as fp:
 #Categories <dictionary>
 #  id - papers.paper.program_codes.program_code.presentation.type
 #  title - papers.paper.program_codes.program_code.presentation.text
-
-
-
